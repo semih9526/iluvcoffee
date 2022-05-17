@@ -1,48 +1,83 @@
 import { HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Connection, Repository } from 'typeorm';
+
+import { CreateCoffeeDto } from './dto/create-coffee.dto';
 import { UpdateCoffeeDto } from './dto/update-coffee.dto';
+import { PaginationQueryDto } from 'src/common/dto/pagination-query.dto';
+
 import { Coffee } from './entities/coffee.entity';
+import { Flavor } from './entities/flavors.entity';
+import { Event } from 'src/events/entities/event.entity';
 
 @Injectable()
 export class CoffeesService {
-  private coffees: Coffee[] = [
-    {
-      id: 1,
-      name: 'Shipwreck Roast',
-      brand: 'Buddy Brew',
-      flavors: ['chocolate', 'vanilla'],
-    },
-  ];
+  constructor(
+    @InjectRepository(Coffee)
+    private readonly coffeeRepository: Repository<Coffee>,
+    @InjectRepository(Flavor)
+    private readonly flavorRepository: Repository<Flavor>,
+    private readonly connection: Connection,
+  ) {}
 
-  findAll = () => this.coffees;
+  findAll = async (paginationQuery: PaginationQueryDto) => {
+    const { offset, limit } = paginationQuery;
+    return await this.coffeeRepository.find({ relations: ['flavors'], skip: offset, take: limit });
+  };
 
-  findOne = (id: string) => {
-    const coffee = this.coffees.find((coffee) => coffee.id === +id);
-    if (!coffee) {
-      throw new NotFoundException(`Coffee #${id} not found`);
-    }
+  findOne = async (id: string) => {
+    const coffee = await this.coffeeRepository.findOne(id, { relations: ['flavors'] });
+    if (!coffee) throw new NotFoundException(`Coffee #${id} not found`);
     return coffee;
   };
 
-  create = (createCoffeeDto: any) => {
-    this.coffees.push(createCoffeeDto);
-    return createCoffeeDto;
+  create = async (createCoffeeDto: CreateCoffeeDto) => {
+    const flavors = await Promise.all(createCoffeeDto.flavors.map((name) => this.preloadFlavorByName(name)));
+
+    const coffee = this.coffeeRepository.create({ ...createCoffeeDto, flavors });
+    return await this.coffeeRepository.save(coffee);
   };
 
-  update = (id: string, updateCoffeeDto: UpdateCoffeeDto) => {
-    const coffeeIndex = this.coffees.findIndex((coffee) => coffee.id === +id);
-    const existingCoffee = this.findOne(id);
-    if (existingCoffee) {
-      const updatedCoffee = { ...existingCoffee, ...updateCoffeeDto };
-      console.log(updatedCoffee);
+  update = async (id: string, updateCoffeeDto: UpdateCoffeeDto) => {
+    const flavors = updateCoffeeDto.flavors && (await Promise.all(updateCoffeeDto.flavors.map((name) => this.preloadFlavorByName(name))));
 
-      this.coffees[coffeeIndex] = updatedCoffee;
-    }
+    const coffee = await this.coffeeRepository.preload({ id: +id, ...updateCoffeeDto, flavors });
+    if (!coffee) throw new NotFoundException(`Coffee #${id} not found.`);
+    return this.coffeeRepository.save(coffee);
   };
 
-  remove = (id: string) => {
-    const coffeeIndex = this.coffees.findIndex((coffee) => coffee.id === +id);
-    if (coffeeIndex !== -1) {
-      return this.coffees.splice(coffeeIndex, 1);
+  remove = async (id: string) => {
+    const coffee = await this.coffeeRepository.findOne(id);
+    return await this.coffeeRepository.remove(coffee);
+  };
+
+  private preloadFlavorByName = async (name: string) => {
+    const existingFlavor = await this.flavorRepository.findOne({ name });
+    if (existingFlavor) return existingFlavor;
+    return this.flavorRepository.create({ name });
+  };
+
+  recommendCoffee = async (coffee: Coffee) => {
+    const queryRunner = this.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      coffee.recommendations++;
+
+      const recommendEvent = new Event();
+      recommendEvent.name = 'recommend_coffee';
+      recommendEvent.type = 'coffee';
+      recommendEvent.payload = { coffeeId: coffee.id };
+
+      await queryRunner.manager.save(coffee);
+      await queryRunner.manager.save(recommendEvent);
+
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+    } finally {
+      await queryRunner.release();
     }
   };
 }
