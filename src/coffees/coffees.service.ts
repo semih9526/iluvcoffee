@@ -5,11 +5,11 @@ import { ConfigService, ConfigType } from '@nestjs/config';
 
 import { CreateCoffeeDto } from './dto/create-coffee.dto';
 import { UpdateCoffeeDto } from './dto/update-coffee.dto';
-import { PaginationQueryDto } from 'src/common/dto/pagination-query.dto';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 
 import { Coffee } from './entities/coffee.entity';
 import { Flavor } from './entities/flavors.entity';
-import { Event } from 'src/events/entities/event.entity';
+import { Event } from '../events/entities/event.entity';
 
 import { COFFEE_BRANDS } from './coffees.constants';
 import coffeesConfig from './config/coffees.config';
@@ -22,14 +22,12 @@ export class CoffeesService {
     @InjectRepository(Flavor)
     private readonly flavorRepository: Repository<Flavor>,
 
-    private readonly connection: Connection,
-    // @Inject(COFFEE_BRANDS) coffeeBrands: string[],
-    @Inject(coffeesConfig.KEY)
-    private readonly coffeesConfiguration: ConfigType<typeof coffeesConfig>,
-  ) {
+    private readonly connection: Connection, // @Inject(COFFEE_BRANDS) coffeeBrands: string[], // @Inject(coffeesConfig.KEY)
+  ) // private readonly coffeesConfiguration: ConfigType<typeof coffeesConfig>,
+  {
     console.log('CoffeesService instantiated');
     // console.log(coffeeBrands);
-    console.log(coffeesConfiguration.foo);
+    // console.log(coffeesConfiguration.foo);
   }
 
   findAll = async (paginationQuery: PaginationQueryDto) => {
